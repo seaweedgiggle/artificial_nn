@@ -24,7 +24,7 @@ def parse_agrs():
 
     # Data input settings
     parser.add_argument('--image_dir', type=str, default='data/iu_xray/images/', help='the path to the directory containing the data.')
-    parser.add_argument('--ann_path', type=str, default='data/iu_xray/annotation.json', help='the path to the directory containing the data.')
+    parser.add_argument('--ann_path', type=str, default='data/iu_xray/annotation_label.json', help='the path to the directory containing the data.')
 
     # Data loader settings
     parser.add_argument('--dataset_name', type=str, default='iu_xray', choices=['iu_xray', 'mimic_cxr'], help='the dataset to be used.')
@@ -133,7 +133,7 @@ def main():
     tokenizer = Tokenizer(args)
     
     # create adjacent matrix
-    with open( 'data/adjacent_matrix_20.txt','r') as matrix_file:
+    with open( 'data/matrix.txt','r') as matrix_file:
         adjacency_matrix = [[int(num) for num in line.split(',')] for line in matrix_file]
     
     args.num_classes = 20

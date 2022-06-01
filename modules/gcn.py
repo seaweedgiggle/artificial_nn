@@ -191,10 +191,10 @@ class GCNFeatureExtractor(nn.Module):
 
         node_feats = node_feats.contiguous()
         
-        # (bs, 21, 1024) -> (bs, 21, 1024)
+        # (bs, 21, 512) -> (bs, 21, 512)
         node_states = self.gcn(node_feats, fw_A, bw_A)
         
-        # (bs, 21, 1024) -> (bs, 1024)
+        # (bs, 21, 512) -> (bs, 512)
         # global_states = node_states.mean(dim=1)
 #         print(node_states.shape)
         return node_states
