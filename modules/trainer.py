@@ -225,12 +225,12 @@ class Trainer(BaseTrainer):
         eval_loss = 0
         with torch.no_grad():
             val_gts, val_res = [], []
-            for batch_idx, (images_id, images, reports_ids, reports_masks, img_padding_mask) in enumerate(self.val_dataloader):
+            for batch_idx, (images_id, images, reports_ids, reports_masks, img_padding_mask, label) in enumerate(self.val_dataloader):
                 images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(
                     self.device), reports_masks.to(self.device)
                 if img_padding_mask is not None:
                     img_padding_mask = img_padding_mask.to(self.device)
-                output, alpha = self.model(images, mode='sample', img_mask=img_padding_mask)
+                output, alpha = self.model(images, label, mode='sample', img_mask=img_padding_mask)
                 # reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
                 if not self.multi_gpu:
                     reports = self.model.tokenizer.decode_batch(output)
@@ -255,12 +255,12 @@ class Trainer(BaseTrainer):
         self.model.eval()
         with torch.no_grad():
             test_gts, test_res = [], []
-            for batch_idx, (images_id, images, reports_ids, reports_masks, img_padding_mask) in enumerate(self.test_dataloader):
+            for batch_idx, (images_id, images, reports_ids, reports_masks, img_padding_mask, label) in enumerate(self.test_dataloader):
                 images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(
                     self.device), reports_masks.to(self.device)
                 if img_padding_mask is not None:
                     img_padding_mask = img_padding_mask.to(self.device)
-                output, alpha = self.model(images, mode='sample', img_mask=img_padding_mask)
+                output, alpha = self.model(images, label, mode='sample', img_mask=img_padding_mask)
                 # reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
                 if not self.multi_gpu:
                     reports = self.model.tokenizer.decode_batch(output)

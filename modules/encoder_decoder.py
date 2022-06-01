@@ -218,7 +218,7 @@ class classifier(nn.Module):
         self.linear2 = nn.Linear(20 * self.hidden_dim, 20 * self.output_dim)
     
     def forward(self, x):
-        print(x.shape)
+#         print(x.shape)
         x = x.contiguous().view(x.shape[0], -1)
         
         return self.linear2(F.relu(self.linear1(x))).view(x.shape[0], -1, self.output_dim);
