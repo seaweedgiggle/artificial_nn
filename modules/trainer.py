@@ -6,6 +6,7 @@ import torch
 import pandas as pd
 from numpy import inf
 import tensorboardX
+from sklearn.metrics import roc_auc_score
 
 class BaseTrainer(object):
     def __init__(self, model, criterion, metric_ftns, optimizer, args):
@@ -197,6 +198,8 @@ class Trainer(BaseTrainer):
 
     def _train_epoch(self, epoch):
         train_loss = 0
+        train_nll_loss = 0
+        train_cls_loss = 0
         self.model.train()
         start_time = time.time()
         for batch_idx, (images_id, images, reports_ids, reports_masks, img_padding_mask, label) in enumerate(self.train_dataloader):
@@ -207,21 +210,29 @@ class Trainer(BaseTrainer):
                 img_padding_mask = img_padding_mask.to(self.device)
                 
             # 这里的 loss 需要修改
-            output, alphas = self.model(images, label, reports_ids, mode='train', img_mask=img_padding_mask)
-            loss = self.criterion(output, reports_ids, reports_masks)
+            output, classify_output = self.model(images, label, reports_ids, mode='train', img_mask=img_padding_mask)
+            
+            loss, nll_loss, cls_loss = self.criterion(output, reports_ids, reports_masks, classify_output, label)
             train_loss += loss.item()
+            train_nll_loss += nll_loss.item()
+            train_cls_loss += cls_loss.item()
             
             self.optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_value_(self.model.parameters(), 0.1)
             self.optimizer.step()
-        log = {'train_loss': train_loss / len(self.train_dataloader)}
+        log = {
+            'train_loss': train_loss / len(self.train_dataloader),
+            'train_nll_loss': train_nll_loss / len(self.train_dataloader),
+            'train_cls_loss': train_cls_loss / len(self.train_dataloader)
+        }
         stop_time = time.time()
         self.tb_writer.add_scalar('train_loss', train_loss, epoch)
         self.tb_writer.add_scalar('learning rate', self.optimizer.param_groups[0]['lr'], epoch)
         print('time elapsed : ' + str(stop_time - start_time) + ' s')
 
         self.model.eval()
+        
         eval_loss = 0
         with torch.no_grad():
             val_gts, val_res = [], []
@@ -230,7 +241,11 @@ class Trainer(BaseTrainer):
                     self.device), reports_masks.to(self.device)
                 if img_padding_mask is not None:
                     img_padding_mask = img_padding_mask.to(self.device)
-                output, alpha = self.model(images, label, mode='sample', img_mask=img_padding_mask)
+                output, cls_prob = self.model(images, label, mode='sample', img_mask=img_padding_mask)
+                
+                #后面这里加入分类结果的验证代码
+                
+                
                 # reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
                 if not self.multi_gpu:
                     reports = self.model.tokenizer.decode_batch(output)
@@ -260,7 +275,10 @@ class Trainer(BaseTrainer):
                     self.device), reports_masks.to(self.device)
                 if img_padding_mask is not None:
                     img_padding_mask = img_padding_mask.to(self.device)
-                output, alpha = self.model(images, label, mode='sample', img_mask=img_padding_mask)
+                output, cls_prob = self.model(images, label, mode='sample', img_mask=img_padding_mask)
+                
+                #后面这里加入分类结果的验证代码
+                
                 # reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
                 if not self.multi_gpu:
                     reports = self.model.tokenizer.decode_batch(output)

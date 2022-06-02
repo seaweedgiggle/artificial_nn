@@ -37,7 +37,7 @@ class R2DataLoader(DataLoader):
 
         self.init_kwargs = {
             'dataset': self.dataset,
-            'batch_size': self.batch_size if split == 'train' else args.n_gpu,
+            'batch_size': self.batch_size,
             'shuffle': self.shuffle,
             'collate_fn': self.collate_fn,
             'num_workers': self.num_workers,
@@ -64,6 +64,6 @@ class R2DataLoader(DataLoader):
         for i, report_masks in enumerate(reports_masks):
             targets_masks[i, :len(report_masks)] = report_masks
             
-        label = torch.Tensor(label)
+        label = torch.LongTensor(label)
         return images_id, images, torch.LongTensor(targets), torch.FloatTensor(targets_masks), img_padding_mask, label
 

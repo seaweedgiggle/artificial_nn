@@ -47,13 +47,14 @@ class Transformer(nn.Module):
     # (bs, 49)  (bs, 512) -> (bs, vocab_size)
 
     def forward(self, src, tgt, src_mask, tgt_mask):
-        gcn_feats = self.gcn_encode(src)
+        gcn_feats = self.gcn_encode(src, src_mask)
         return self.decode(gcn_feats, src_mask, tgt, tgt_mask), self.classifier(gcn_feats[:, 1: , :])
 
     def encode(self, src, src_mask):
         return self.encoder(self.src_embed(src), src_mask)
     
-    def gcn_encode(self, x):
+    def gcn_encode(self, x, mask):
+        x = self.encode(x, mask) 
         return self.GCNFeatureExtractor(x)
 
     def decode(self, hidden_states, src_mask, tgt, tgt_mask):
@@ -203,26 +204,40 @@ class PositionalEncoding(nn.Module):
 # mode = "local": 使用类别特征分类 -> 输入为 (bs, 20, c)
 # 输出：(bs, 20, 4)
 # 暂时先实现 local
+# class classifier(nn.Module):
+#     def __init__(self, mode):
+#         super(classifier, self).__init__()
+#         self.input_dim = 512
+#         self.hidden_dim = 128
+#         self.output_dim = 4
+#         # TODO
+#         if mode == "global":
+#             self.linear1 = nn.Linear(1 * self.input_dim, 20 * self.hidden_dim)
+#         elif mode == "local":
+#             self.linear1 = nn.Linear(20 * self.input_dim, 20 * self.hidden_dim)
+            
+#         self.linear2 = nn.Linear(20 * self.hidden_dim, 20 * self.output_dim)
+    
+#     def forward(self, x):
+# #         print(x.shape)
+#         x = x.contiguous().view(x.shape[0], -1)
+        
+#         return self.linear2(F.relu(self.linear1(x))).view(x.shape[0], -1, self.output_dim);
+
 class classifier(nn.Module):
     def __init__(self, mode):
         super(classifier, self).__init__()
         self.input_dim = 512
         self.hidden_dim = 128
         self.output_dim = 4
-        # TODO
-        if mode == "global":
-            self.linear1 = nn.Linear(1 * self.input_dim, 20 * self.hidden_dim)
-        elif mode == "local":
-            self.linear1 = nn.Linear(20 * self.input_dim, 20 * self.hidden_dim)
-            
-        self.linear2 = nn.Linear(20 * self.hidden_dim, 20 * self.output_dim)
+        self.linear1 = nn.Linear(self.input_dim, self.hidden_dim)
+        self.relu = nn.ReLU()
+        self.linear2 = nn.Linear(self.hidden_dim, self.output_dim)
     
     def forward(self, x):
-#         print(x.shape)
-        x = x.contiguous().view(x.shape[0], -1)
         
-        return self.linear2(F.relu(self.linear1(x))).view(x.shape[0], -1, self.output_dim);
-    
+        return self.linear2(self.relu(self.linear1(x)))
+            
 
 class EncoderDecoder(AttModel):
 
@@ -271,9 +286,11 @@ class EncoderDecoder(AttModel):
 
     def _prepare_feature(self, fc_feats, att_feats, att_masks):
         att_feats, seq, att_masks, seq_mask = self._prepare_feature_forward(att_feats, att_masks)
-        memory = self.model.encode(att_feats, att_masks)
+#         memory = self.model.encode(att_feats, att_masks)
+        memory = self.model.gcn_encode(att_feats, att_masks)
+        cls_prob = self.model.classifier(memory[:, 1:, :])
 
-        return fc_feats[..., :1], att_feats[..., :1], memory, att_masks
+        return fc_feats[..., :1], att_feats[..., :1], memory, att_masks, cls_prob
 
     def _prepare_feature_forward(self, att_feats, att_masks=None, seq=None):
         att_feats, att_masks = self.clip_att(att_feats, att_masks)
@@ -305,9 +322,9 @@ class EncoderDecoder(AttModel):
         att_feats, seq, att_masks, seq_mask = self._prepare_feature_forward(att_feats, att_masks, seq)
         
         # 调用了 Transformer 类的 forward
-        out, classify_out = self.model(att_feats, seq, att_masks, seq_mask)
+        out, classify_outputs = self.model(att_feats, seq, att_masks, seq_mask)
         outputs = F.log_softmax(self.logit(out), dim=-1)
-        classify_outputs = F.softmax(classify_out, -1)
+#         classify_outputs = F.softmax(classify_out, -1)yy
         return outputs, classify_outputs
 
     def core(self, it, fc_feats_ph, att_feats_ph, memory, state, mask):

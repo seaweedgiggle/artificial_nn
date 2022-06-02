@@ -102,7 +102,7 @@ class AttModel(CaptionModel):
         assert sample_n == 1 or sample_n == beam_size // group_size, 'when beam search, sample_n == 1 or beam search'
         batch_size = fc_feats.size(0)
 
-        p_fc_feats, p_att_feats, pp_att_feats, p_att_masks = self._prepare_feature(fc_feats, att_feats, att_masks)
+        p_fc_feats, p_att_feats, pp_att_feats, p_att_masks, cls_prob = self._prepare_feature(fc_feats, att_feats, att_masks)
 
         assert beam_size <= self.vocab_size + 1, 'lets assume this for now, otherwise this corner case causes a few headaches down the road. can be dealt with in future if needed'
         seq = fc_feats.new_full((batch_size * sample_n, self.max_seq_length), self.pad_idx, dtype=torch.long)
@@ -134,7 +134,7 @@ class AttModel(CaptionModel):
                 seqLogprobs[k, :seq_len] = self.done_beams[k][0]['logps']
         # return the samples and their log likelihoods
 
-        return seq, seqLogprobs
+        return seq, cls_prob
 
     def _sample(self, fc_feats, att_feats, att_masks=None):
         opt = self.args.__dict__
@@ -154,7 +154,7 @@ class AttModel(CaptionModel):
         batch_size = fc_feats.size(0)
         state = self.init_hidden(batch_size * sample_n)
 
-        p_fc_feats, p_att_feats, pp_att_feats, p_att_masks = self._prepare_feature(fc_feats, att_feats, att_masks)
+        p_fc_feats, p_att_feats, pp_att_feats, p_att_masks, cls_prob = self._prepare_feature(fc_feats, att_feats, att_masks)
 
         if sample_n > 1:
             p_fc_feats, p_att_feats, pp_att_feats, p_att_masks = utils.repeat_tensors(sample_n,
@@ -239,7 +239,7 @@ class AttModel(CaptionModel):
         batch_size = fc_feats.size(0)
         state = self.init_hidden(batch_size)
 
-        p_fc_feats, p_att_feats, pp_att_feats, p_att_masks = self._prepare_feature(fc_feats, att_feats, att_masks)
+        p_fc_feats, p_att_feats, pp_att_feats, p_att_masks, cls_prob = self._prepare_feature(fc_feats, att_feats, att_masks)
 
         trigrams_table = [[] for _ in range(group_size)]  # will be a list of batch_size dictionaries
 

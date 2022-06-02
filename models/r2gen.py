@@ -32,21 +32,23 @@ class R2GenModel(nn.Module):
         # self.encoder_decoder 的返回值变成了 decoder 的输出 + 分类器的输出 (两个输出都经过了 softmax )
         # label 已经作为参数传进来了 (bs, 20)
         # 这里等你改了
+        
+        classify_output = None
         if mode == 'train':
             output, classify_output = self.encoder_decoder(fc_feats, att_feats, targets, mode='forward')
         elif mode == 'sample':
-            output, _ = self.encoder_decoder(fc_feats, att_feats, mode='sample')
+            output, classify_output = self.encoder_decoder(fc_feats, att_feats, mode='sample')
         else:
             raise ValueError
-        return output, None
+        return output, classify_output
 
     def forward_mimic_cxr(self, images, targets=None, mode='train'):
         att_feats, fc_feats, _ = self.visual_extractor(images)
         if mode == 'train':
-            output = self.encoder_decoder(fc_feats, att_feats, targets, mode='forward')
+            output, classify_output = self.encoder_decoder(fc_feats, att_feats, targets, mode='forward')
         elif mode == 'sample':
-            output, _ = self.encoder_decoder(fc_feats, att_feats, mode='sample')
+            output, classify_output = self.encoder_decoder(fc_feats, att_feats, mode='sample')
         else:
             raise ValueError
-        return output, None
+        return output, classify_output
 
