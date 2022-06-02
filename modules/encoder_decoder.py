@@ -237,6 +237,23 @@ class classifier(nn.Module):
     def forward(self, x):
         
         return self.linear2(self.relu(self.linear1(x)))
+    
+# class classifier(nn.Module):
+#     def __init__(self, mode):
+#         super(classifier, self).__init__()
+#         self.input_dim = 512
+#         self.hidden_dim = 128
+#         self.output_dim = 4
+#         self.cls = [nn.Sequential(
+#             nn.Linear(self.input_dim, self.hidden_dim),
+#             nn.ReLU(),
+#             nn.Linear(self.hidden_dim, self.output_dim)
+#         ) for _ in range(20)]
+    
+#     def forward(self, x):
+#         # x (bs, 20, 512)
+#         print(torch.cat([self.cls[i](x[:, i]) for i in range(20)], dim = 1).shape)
+#         return torch.cat([self.cls[i](x[:, i]) for i in range(20)], dim = 1)
             
 
 class EncoderDecoder(AttModel):
@@ -247,6 +264,7 @@ class EncoderDecoder(AttModel):
         ff = PositionwiseFeedForward(self.d_model, self.d_ff, self.dropout)
         position = PositionalEncoding(self.d_model, self.dropout)
         gcnfe = GCNFeatureExtractor(self.num_classes, self.fw_adj, self.bw_adj)
+        
         clr = classifier("local")
         
         model = Transformer(
@@ -288,8 +306,8 @@ class EncoderDecoder(AttModel):
         att_feats, seq, att_masks, seq_mask = self._prepare_feature_forward(att_feats, att_masks)
 #         memory = self.model.encode(att_feats, att_masks)
         memory = self.model.gcn_encode(att_feats, att_masks)
+        # 使用 20 个局部特征 一个分类器
         cls_prob = self.model.classifier(memory[:, 1:, :])
-
         return fc_feats[..., :1], att_feats[..., :1], memory, att_masks, cls_prob
 
     def _prepare_feature_forward(self, att_feats, att_masks=None, seq=None):

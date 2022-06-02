@@ -7,6 +7,7 @@ import pandas as pd
 from numpy import inf
 import tensorboardX
 from sklearn.metrics import roc_auc_score
+from scipy.special import softmax
 
 class BaseTrainer(object):
     def __init__(self, model, criterion, metric_ftns, optimizer, args):
@@ -233,6 +234,18 @@ class Trainer(BaseTrainer):
 
         self.model.eval()
         
+        auc_eval = [0 for _ in range(20)]
+        # (12, 20) -> (n, 20)
+        labels = [torch.zeros((1, 20), dtype=int).cpu(), 
+                  torch.ones((1, 20), dtype=int).cpu(),
+                 2 * torch.ones((1, 20), dtype=int).cpu(),
+                 3 * torch.ones((1, 20), dtype=int).cpu()]
+        # (12, 20, 4) -> (n, 20, 4)
+        cls_probs = [softmax(torch.rand((1, 20, 4)), -1).to(self.device), 
+                     softmax(torch.rand((1, 20, 4)), -1).to(self.device),
+                    softmax(torch.rand((1, 20, 4)), -1).to(self.device),
+                    softmax(torch.rand((1, 20, 4)), -1).to(self.device)]
+        
         eval_loss = 0
         with torch.no_grad():
             val_gts, val_res = [], []
@@ -242,9 +255,12 @@ class Trainer(BaseTrainer):
                 if img_padding_mask is not None:
                     img_padding_mask = img_padding_mask.to(self.device)
                 output, cls_prob = self.model(images, label, mode='sample', img_mask=img_padding_mask)
+
+#                 print(cls_prob.max(-1)[1], label)
                 
                 #后面这里加入分类结果的验证代码
-                
+                labels.append(label)
+                cls_probs.append(cls_prob)
                 
                 # reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
                 if not self.multi_gpu:
@@ -254,20 +270,50 @@ class Trainer(BaseTrainer):
                     reports = self.model.module.tokenizer.decode_batch(output)
                     ground_truths = self.model.module.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
                 
-                print('eval', reports)
+#                 print('eval', reports)
                 # loss = self.criterion(output, reports_ids, reports_masks)
                 # eval_loss += loss.item()
 
                 val_res.extend(reports)
                 val_gts.extend(ground_truths)
+            
             val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)},
                                        {i: [re] for i, re in enumerate(val_res)})
             log.update(**{'val_' + k: v for k, v in val_met.items()})
-            # self.tb_writer.add_scalar('eval_loss', eval_loss, epoch)
+            self.tb_writer.add_scalar('eval_loss', eval_loss, epoch)
             for key in val_met:
                 self.tb_writer.add_scalar('val_'+key, val_met[key], epoch)
+            
+            labels = torch.cat(labels, 0)  # (bs, 20)
+            cls_probs = torch.cat(cls_probs, 0) # (bs, 20, 4)
+            for i in range(20):
+                y_true = labels[:, i]
+                ones = torch.sparse.torch.eye(4)
+                y_true = ones.index_select(0, y_true).numpy()
+                y_score = softmax(cls_probs[:, i, :].squeeze(1).cpu().numpy(), -1)
 
+#                 try:
+                auc_eval[i] += roc_auc_score(y_true, y_score, multi_class='ovr', average='macro').mean()
+#                 except:
+#                     pass
+            print("epoch {}:".format(epoch))
+            for i in range(20):
+                print("valid: class {} AUC {:.4f}".format(i, auc_eval[i]))
+                
+        auc_test = [0 for _ in range(20)]
+        
+        # (12, 20) -> (n, 20)
+        labels = [torch.zeros((1, 20), dtype=int).cpu(), 
+                  torch.ones((1, 20), dtype=int).cpu(),
+                 2 * torch.ones((1, 20), dtype=int).cpu(),
+                 3 * torch.ones((1, 20), dtype=int).cpu()]
+        # (12, 20, 4) -> (n, 20, 4)
+        cls_probs = [softmax(torch.rand((1, 20, 4)), -1).to(self.device), 
+                     softmax(torch.rand((1, 20, 4)), -1).to(self.device),
+                    softmax(torch.rand((1, 20, 4)), -1).to(self.device),
+                    softmax(torch.rand((1, 20, 4)), -1).to(self.device)]
         self.model.eval()
+        
         with torch.no_grad():
             test_gts, test_res = [], []
             for batch_idx, (images_id, images, reports_ids, reports_masks, img_padding_mask, label) in enumerate(self.test_dataloader):
@@ -278,6 +324,8 @@ class Trainer(BaseTrainer):
                 output, cls_prob = self.model(images, label, mode='sample', img_mask=img_padding_mask)
                 
                 #后面这里加入分类结果的验证代码
+                labels.append(label)
+                cls_probs.append(cls_prob)
                 
                 # reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
                 if not self.multi_gpu:
@@ -287,7 +335,7 @@ class Trainer(BaseTrainer):
                     reports = self.model.module.tokenizer.decode_batch(output)
                     ground_truths = self.model.module.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
 
-                print('test', reports)
+#                 print('test', reports)
 
                 test_res.extend(reports)
                 test_gts.extend(ground_truths)
@@ -297,6 +345,20 @@ class Trainer(BaseTrainer):
             for key in test_met:
                 self.tb_writer.add_scalar('test_'+key, test_met[key], epoch)
 
+            labels = torch.cat(labels, 0)
+            cls_probs = torch.cat(cls_probs, 0)
+            for i in range(20):
+                # 输入为 (bs, 4)
+                y_true = labels[:, i]
+                ones = torch.sparse.torch.eye(4)
+                y_true = ones.index_select(0, y_true).numpy()
+                y_score = softmax(cls_probs[:, i, :].squeeze(1).cpu().numpy(), -1)
+#                 print(y_true.shape, y_score.shape)
+                auc_test[i] += roc_auc_score(y_true, y_score, multi_class='ovr', average='macro').mean()
+    
+            print("epoch {}:".format(epoch))
+            for i in range(20):
+                print("test: class {} AUC {:.4f}".format(i, auc_test[i]))
+        
         self.lr_scheduler.step()
-
         return log
