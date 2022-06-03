@@ -224,36 +224,36 @@ class PositionalEncoding(nn.Module):
         
 #         return self.linear2(F.relu(self.linear1(x))).view(x.shape[0], -1, self.output_dim);
 
-class classifier(nn.Module):
-    def __init__(self, mode):
-        super(classifier, self).__init__()
-        self.input_dim = 512
-        self.hidden_dim = 128
-        self.output_dim = 4
-        self.linear1 = nn.Linear(self.input_dim, self.hidden_dim)
-        self.relu = nn.ReLU()
-        self.linear2 = nn.Linear(self.hidden_dim, self.output_dim)
-    
-    def forward(self, x):
-        
-        return self.linear2(self.relu(self.linear1(x)))
-    
 # class classifier(nn.Module):
 #     def __init__(self, mode):
 #         super(classifier, self).__init__()
 #         self.input_dim = 512
 #         self.hidden_dim = 128
 #         self.output_dim = 4
-#         self.cls = [nn.Sequential(
-#             nn.Linear(self.input_dim, self.hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(self.hidden_dim, self.output_dim)
-#         ) for _ in range(20)]
+#         self.linear1 = nn.Linear(self.input_dim, self.hidden_dim)
+#         self.relu = nn.ReLU()
+#         self.linear2 = nn.Linear(self.hidden_dim, self.output_dim)
     
 #     def forward(self, x):
-#         # x (bs, 20, 512)
-#         print(torch.cat([self.cls[i](x[:, i]) for i in range(20)], dim = 1).shape)
-#         return torch.cat([self.cls[i](x[:, i]) for i in range(20)], dim = 1)
+        
+#         return self.linear2(self.relu(self.linear1(x)))
+    
+class classifier(nn.Module):
+    def __init__(self, mode):
+        super(classifier, self).__init__()
+        self.input_dim = 512
+        self.hidden_dim = 128
+        self.output_dim = 4
+        self.cls = nn.ModuleList([nn.Sequential(
+            nn.Linear(self.input_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, self.output_dim)
+        ) for _ in range(20)])
+    
+    def forward(self, x):
+        # x (bs, 20, 512)
+        prob = [self.cls[i](x[:, i].unsqueeze(1)) for i in range(20)]
+        return torch.cat(prob, dim = 1)
             
 
 class EncoderDecoder(AttModel):
