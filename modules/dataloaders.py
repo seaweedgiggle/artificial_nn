@@ -21,7 +21,7 @@ class R2DataLoader(DataLoader):
                 transforms.RandomCrop(args.img_size),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize((0.485, 0.456, 0.406), #todo可能与自然图像的分布不同，实验试试去掉会怎么样
+                transforms.Normalize((0.485, 0.456, 0.406),
                                      (0.229, 0.224, 0.225))])
         else:
             self.transform = transforms.Compose([

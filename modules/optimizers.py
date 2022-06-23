@@ -8,17 +8,17 @@ def build_optimizer(args, model):
 
     ve_params = list(map(id, model.visual_extractor.parameters()))
 
-    lp_params = list(map(id, model.visual_extractor.model[6][-1].parameters())) + \
-                list(map(id, model.visual_extractor.model[7][-1].parameters()))
-    res_params = filter(lambda x: id(x) not in lp_params, model.visual_extractor.parameters())
+#     lp_params = list(map(id, model.visual_extractor.model[6][-1].parameters())) + \
+#                 list(map(id, model.visual_extractor.model[7][-1].parameters()))
 
-    ed_params = filter(lambda x: id(x) not in ve_params, model.parameters())
+    dec_params = list(map(id, model.encoder_decoder.model.decoder.parameters()))
+
+    enc_params = filter(lambda x: id(x) not in dec_params, model.encoder_decoder.parameters())
 
     optimizer = getattr(torch.optim, args.optim)(
-        [{'params': model.visual_extractor.model[6][-1].parameters(), 'lr': args.lr_lp},
-         {'params': model.visual_extractor.model[7][-1].parameters(), 'lr': args.lr_lp},
-         {'params': ed_params, 'lr': args.lr_ed},
-         {'params': res_params, 'lr' : args.lr_res}],
+        [{'params': model.encoder_decoder.model.decoder.parameters(), 'lr': args.lr_dec},
+         {'params': enc_params, 'lr': args.lr_enc},
+         {'params': model.visual_extractor.parameters(), 'lr' : args.lr_ve}],
         weight_decay=args.weight_decay,
         amsgrad=args.amsgrad
     )

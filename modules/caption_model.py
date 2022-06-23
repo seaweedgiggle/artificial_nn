@@ -59,7 +59,6 @@ class CaptionModel(nn.Module):
             # beam_seq : tensor containing the word indices of the decoded captions Nxbxl
             # beam_seq_logprobs : log-probability of each decision made, NxbxlxV
             # beam_logprobs_sum : joint log-probability of each beam Nxb
-
             batch_size = beam_logprobs_sum.shape[0]
             vocab_size = logprobs.shape[-1]
             logprobs = logprobs.reshape(batch_size, -1, vocab_size)  # NxbxV
@@ -79,7 +78,6 @@ class CaptionModel(nn.Module):
                 assert (beam_seq.gather(1, beam_ix.unsqueeze(-1).expand_as(beam_seq)) ==
                         beam_seq.reshape(-1, beam_seq.shape[-1])[state_ix].view_as(beam_seq)).all()
                 beam_seq = beam_seq.gather(1, beam_ix.unsqueeze(-1).expand_as(beam_seq))
-
                 beam_seq_logprobs = beam_seq_logprobs.gather(1, beam_ix.unsqueeze(-1).unsqueeze(-1).expand_as(
                     beam_seq_logprobs))
 

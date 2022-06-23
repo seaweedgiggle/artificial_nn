@@ -9,6 +9,9 @@ import torch.nn.functional as F
 from modules.att_model import pack_wrapper, AttModel
 from modules.gcn import GCNFeatureExtractor
 
+from transformers import OPTForCausalLM
+from transformers import OPTModel, OPTConfig
+
 def clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
@@ -49,7 +52,7 @@ class Transformer(nn.Module):
     def forward(self, src, tgt, src_mask, tgt_mask):
         gcn_feats = self.gcn_encode(src, src_mask)
         return self.decode(gcn_feats, src_mask, tgt, tgt_mask), self.classifier(gcn_feats[:, 1: , :])
-
+    
     def encode(self, src, src_mask):
         return self.encoder(self.src_embed(src), src_mask)
     
@@ -58,7 +61,27 @@ class Transformer(nn.Module):
         return self.GCNFeatureExtractor(x)
 
     def decode(self, hidden_states, src_mask, tgt, tgt_mask):
-        return self.decoder(self.tgt_embed(tgt), hidden_states, None, tgt_mask)
+    #     return self.decoder(self.tgt_embed(tgt), hidden_states, None, tgt_mask)
+    
+    # 根据 OPT 的 forward 格式
+    # 把 encoder 输出和 decoder 输入拼起来
+#         print("hidden_states: " + str(hidden_states.size()))
+#         print("target_embedding: " + str(self.tgt_embed(tgt).size()))
+#         print(src_mask.shape)
+#         print("target_mask: " + str(tgt_mask.size()))
+        
+        tgt_embedding = self.tgt_embed(tgt)
+        inputs = torch.cat((hidden_states, tgt_embedding), dim=1)
+        if tgt_mask.shape[0] == 1:
+            mask = torch.ones((tgt_embedding.shape[0], tgt_embedding.shape[1] + hidden_states.shape[1])).cuda()
+        else:
+            mask1 = torch.ones((tgt_mask.shape[0], hidden_states.shape[1])).cuda()
+            mask = torch.cat((mask1, tgt_mask), dim=-1)
+        
+        logits = self.decoder(inputs_embeds = inputs,
+                    attention_mask = mask, return_dict = False)[0]
+#         print("logits:" + str(logits.shape))
+        return logits
 
 
 class Encoder(nn.Module):
@@ -171,14 +194,14 @@ class PositionwiseFeedForward(nn.Module):
         return self.w_2(self.dropout(F.relu(self.w_1(x))))
 
 
-class Embeddings(nn.Module):
-    def __init__(self, d_model, vocab):
-        super(Embeddings, self).__init__()
-        self.lut = nn.Embedding(vocab, d_model)
-        self.d_model = d_model
+# class Embeddings(nn.Module):
+#     def __init__(self, d_model, vocab):
+#         super(Embeddings, self).__init__()
+#         self.lut = nn.Embedding(vocab, d_model)
+#         self.d_model = d_model
 
-    def forward(self, x):
-        return self.lut(x) * math.sqrt(self.d_model)
+#     def forward(self, x):
+#         return self.lut(x) * math.sqrt(self.d_model)
 
 
 class PositionalEncoding(nn.Module):
@@ -262,18 +285,25 @@ class EncoderDecoder(AttModel):
         c = copy.deepcopy
         attn = MultiHeadedAttention(self.num_heads, self.d_model)
         ff = PositionwiseFeedForward(self.d_model, self.d_ff, self.dropout)
-        position = PositionalEncoding(self.d_model, self.dropout)
+#         position = PositionalEncoding(self.d_model, self.dropout)
         gcnfe = GCNFeatureExtractor(self.num_classes, self.fw_adj, self.bw_adj)
         
         clr = classifier("local")
         
+        # OPT
+#         configuration = OPTConfig(num_attention_heads=16, vocab_size=tgt_vocab, hidden_size=1024)
+#         decoder = OPTForCausalLM(configuration).from_pretrained("facebook/opt-350m")
+        decoder = OPTForCausalLM.from_pretrained("facebook/opt-350m")
+        
         model = Transformer(
             Encoder(EncoderLayer(self.d_model, c(attn), c(ff), self.dropout), self.num_layers),
-            Decoder(
-                DecoderLayer(self.d_model, c(attn), c(attn), c(ff), self.dropout),
-                self.num_layers),
+#             Decoder(
+#                 DecoderLayer(self.d_model, c(attn), c(attn), c(ff), self.dropout),
+#                 self.num_layers),
+            decoder,
             lambda x: x,
-            nn.Sequential(Embeddings(self.d_model, tgt_vocab), c(position)),
+#             nn.Sequential(Embeddings(self.d_model, tgt_vocab), c(position)),
+            decoder.model.decoder.embed_tokens,
             gcnfe,
             clr
             )
@@ -324,8 +354,8 @@ class EncoderDecoder(AttModel):
             seq_mask = (seq.data > 0)
             seq_mask[:, 0] += True
 
-            seq_mask = seq_mask.unsqueeze(-2)
-            seq_mask = seq_mask & subsequent_mask(seq.size(-1)).to(seq_mask)
+#             seq_mask = seq_mask.unsqueeze(-2)
+#             seq_mask = seq_mask & subsequent_mask(seq.size(-1)).to(seq_mask)
         else:
             seq_mask = None
         return att_feats, seq, att_masks, seq_mask
@@ -341,7 +371,11 @@ class EncoderDecoder(AttModel):
         
         # 调用了 Transformer 类的 forward
         out, classify_outputs = self.model(att_feats, seq, att_masks, seq_mask)
-        outputs = F.log_softmax(self.logit(out), dim=-1)
+
+#         outputs = F.log_softmax(self.logit(out), dim=-1)
+        # OPT 出来的 out 已经是 Logit 了
+        outputs = F.log_softmax(out, dim=-1)
+
 #         classify_outputs = F.softmax(classify_out, -1)yy
         return outputs, classify_outputs
 

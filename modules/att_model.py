@@ -38,7 +38,7 @@ class AttModel(CaptionModel):
         super(AttModel, self).__init__()
         self.args = args
         self.tokenizer = tokenizer
-        self.vocab_size = len(tokenizer.idx2token)#760
+        self.vocab_size = tokenizer.get_vocab_size()
         self.input_encoding_size = args.d_model
         self.rnn_size = args.d_ff
         self.num_layers = args.num_layers
@@ -88,9 +88,11 @@ class AttModel(CaptionModel):
 
         output, state = self.core(xt, fc_feats, att_feats, p_att_feats, state, att_masks)
         if output_logsoftmax:
-            logprobs = F.log_softmax(self.logit(output), dim=1)
+            # OPT 的输出已经带了 logit
+#             logprobs = F.log_softmax(self.logit(output), dim=1)
+             logprobs = F.log_softmax(output, dim=1)
         else:
-            logprobs = self.logit(output)
+            logprobs = output
 
         return logprobs, state
 

@@ -76,8 +76,8 @@ class FocalLoss(nn.Module):
 class LanguageModelCriterion(nn.Module):
     def __init__(self):
         super(LanguageModelCriterion, self).__init__()
-#         self.ce = nn.CrossEntropyLoss()
-        self.focal_loss = FocalLoss(4)
+        self.ce = nn.CrossEntropyLoss()
+#         self.focal_loss = FocalLoss(4)
 
     def forward(self, input, target, mask, cls_prob, cls_label): #todo
         # truncate to the same size
@@ -88,12 +88,13 @@ class LanguageModelCriterion(nn.Module):
         
         cls_prob = cls_prob.view(-1, 4)
         cls_label = cls_label.view(-1)
-#         cls_loss = self.ce(cls_prob, cls_label)
-        cls_loss = self.focal_loss(cls_prob, cls_label)
+        cls_loss = self.ce(cls_prob, cls_label)
+#         cls_loss = self.focal_loss(cls_prob, cls_label)
         
         nll_loss = nll_loss.mean()
         cls_loss = cls_loss.mean()
-        loss = nll_loss + cls_loss
+        loss = nll_loss + 0.2*cls_loss
+#         loss = nll_loss
         
 #         print(nll_loss.item(), cls_loss.item())
 

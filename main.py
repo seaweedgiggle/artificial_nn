@@ -37,7 +37,7 @@ def parse_agrs():
     # Model settings (for visual extractor)
     parser.add_argument('--visual_extractor', type=str, default='resnet101', help='the visual extractor to be used.')
     parser.add_argument('--visual_extractor_pretrained', type=bool, default=True, help='whether to load the pretrained visual extractor')
-    parser.add_argument('--att', type=str, default='SimAM')
+#     parser.add_argument('--att', type=str, default='SimAM')
 
     # Model settings (for Transformer)
     parser.add_argument('--d_model', type=int, default=512, help='the dimension of Transformer.')
@@ -47,9 +47,9 @@ def parse_agrs():
     parser.add_argument('--num_layers', type=int, default=3, help='the number of layers of Transformer.')
     parser.add_argument('--dropout', type=float, default=0.1, help='the dropout rate of Transformer.')
     parser.add_argument('--logit_layers', type=int, default=1, help='the number of the logit layer.')
-    parser.add_argument('--bos_idx', type=int, default=0, help='the index of <bos>.')
+    parser.add_argument('--bos_idx', type=int, default=2, help='the index of <bos>.')
     parser.add_argument('--eos_idx', type=int, default=0, help='the index of <eos>.')
-    parser.add_argument('--pad_idx', type=int, default=0, help='the index of <pad>.')
+    parser.add_argument('--pad_idx', type=int, default=1, help='the index of <pad>.')
     parser.add_argument('--use_bn', type=int, default=0, help='whether to use batch normalization.')
     parser.add_argument('--drop_prob_lm', type=float, default=0.5, help='the dropout rate of the output layer.')
     parser.add_argument('--lstm_dim', type=int, default=512, help='the hidden dim of lstm decoder.')
@@ -69,7 +69,7 @@ def parse_agrs():
     # Trainer settings
     parser.add_argument('--devices', type=str, default="0,1,2,3", help='cuda visible devices')
     parser.add_argument('--n_gpu', type=int, default=1, help='the number of gpus to be used.')
-    parser.add_argument('--epochs', type=int, default=50, help='the number of training epochs.')
+    parser.add_argument('--epochs', type=int, default=60, help='the number of training epochs.')
     parser.add_argument('--save_dir', type=str, default='results/', help='the patch to save the models.')
     parser.add_argument('--record_dir', type=str, default='records/', help='the patch to save the results of experiments')
     parser.add_argument('--save_period', type=int, default=1, help='the saving period.')
@@ -79,16 +79,16 @@ def parse_agrs():
 
     # Optimization
     parser.add_argument('--optim', type=str, default='Adam', help='the type of the optimizer.')
-    parser.add_argument('--lr_res', type=float, default=5e-5, help='the learning rate for the pretrained resnet.')
-    parser.add_argument('--lr_lp', type=float, default=5e-5, help='the learning rate for the laplacian pyramid.')
-    parser.add_argument('--lr_ed', type=float, default=1e-4, help='the learning rate for the remaining parameters.')
+    parser.add_argument('--lr_enc', type=float, default=1e-3, help='the learning rate for the pretrained resnet.')
+    parser.add_argument('--lr_dec', type=float, default=5e-4, help='the learning rate for the laplacian pyramid.')
+    parser.add_argument('--lr_ve', type=float, default=5e-4, help='the learning rate for the remaining parameters.')
     parser.add_argument('--weight_decay', type=float, default=5e-5, help='the weight decay.')
     parser.add_argument('--amsgrad', type=bool, default=True, help='.')
 
     # Learning Rate Scheduler
     parser.add_argument('--lr_scheduler', type=str, default='StepLR', help='the type of the learning rate scheduler.')
-    parser.add_argument('--step_size', type=int, default=10, help='the step size of the learning rate scheduler.')
-    parser.add_argument('--gamma', type=float, default=0.8, help='the gamma of the learning rate scheduler.')
+    parser.add_argument('--step_size', type=int, default=20, help='the step size of the learning rate scheduler.')
+    parser.add_argument('--gamma', type=float, default=0.1, help='the gamma of the learning rate scheduler.')
 
     # Others
     parser.add_argument('--seed', type=int, default=9223, help='.')
@@ -98,6 +98,8 @@ def parse_agrs():
     parser.add_argument('--att_path', type=str, default='output_att/', help='the path to save the attention maps.')
     parser.add_argument('--save', action='store_true')
     parser.add_argument('--reports_path', type=str, default='reports/')
+    parser.add_argument('--mirqi', action='store_true')
+    parser.add_argument('--eval_step', type=int, default=5)
 
     args = parser.parse_args()
     return args

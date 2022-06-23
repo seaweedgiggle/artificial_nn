@@ -8,6 +8,7 @@ from numpy import inf
 import tensorboardX
 from sklearn.metrics import roc_auc_score
 from scipy.special import softmax
+from modules.labelprocess import Runner
 
 class BaseTrainer(object):
     def __init__(self, model, criterion, metric_ftns, optimizer, args):
@@ -33,6 +34,7 @@ class BaseTrainer(object):
 
         self.mnt_best = inf if self.mnt_mode == 'min' else -inf
         self.early_stop = getattr(self.args, 'early_stop', inf)
+        self.eval_step = args.eval_step
 
         self.start_epoch = 1
         self.checkpoint_dir = args.save_dir
@@ -58,7 +60,9 @@ class BaseTrainer(object):
             # save logged informations into log dict
             log = {'epoch': epoch}
             log.update(result)
-            self._record_best(log)
+            
+            if epoch % self.eval_step == 0:
+                self._record_best(log)
 
             # print logged informations to the screen
             for key, value in log.items():
@@ -196,6 +200,7 @@ class Trainer(BaseTrainer):
         self.tb_writer = tb_writer
         self.multi_gpu = args.n_gpu > 1
         self.reports_path = args.reports_path
+        self.mirqi = args.mirqi
 
     def _train_epoch(self, epoch):
         train_loss = 0
@@ -231,134 +236,158 @@ class Trainer(BaseTrainer):
         self.tb_writer.add_scalar('train_loss', train_loss, epoch)
         self.tb_writer.add_scalar('learning rate', self.optimizer.param_groups[0]['lr'], epoch)
         print('time elapsed : ' + str(stop_time - start_time) + ' s')
-
-        self.model.eval()
         
-        auc_eval = [0 for _ in range(20)]
-        # (12, 20) -> (n, 20)
-        labels = [torch.zeros((1, 20), dtype=int).cpu(), 
-                  torch.ones((1, 20), dtype=int).cpu(),
-                 2 * torch.ones((1, 20), dtype=int).cpu(),
-                 3 * torch.ones((1, 20), dtype=int).cpu()]
-        # (12, 20, 4) -> (n, 20, 4)
-        cls_probs = [softmax(torch.rand((1, 20, 4)), -1).to(self.device), 
-                     softmax(torch.rand((1, 20, 4)), -1).to(self.device),
-                    softmax(torch.rand((1, 20, 4)), -1).to(self.device),
-                    softmax(torch.rand((1, 20, 4)), -1).to(self.device)]
-        
-        eval_loss = 0
-        with torch.no_grad():
-            val_gts, val_res = [], []
-            for batch_idx, (images_id, images, reports_ids, reports_masks, img_padding_mask, label) in enumerate(self.val_dataloader):
-                images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(
-                    self.device), reports_masks.to(self.device)
-                if img_padding_mask is not None:
-                    img_padding_mask = img_padding_mask.to(self.device)
-                output, cls_prob = self.model(images, label, mode='sample', img_mask=img_padding_mask)
+        if epoch % self.eval_step == 0:
+            self.model.eval()
 
-#                 print(cls_prob.max(-1)[1], label)
-                
-                #后面这里加入分类结果的验证代码
-                labels.append(label)
-                cls_probs.append(cls_prob)
-                
-                # reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
-                if not self.multi_gpu:
-                    reports = self.model.tokenizer.decode_batch(output)
-                    ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
-                else:
-                    reports = self.model.module.tokenizer.decode_batch(output)
-                    ground_truths = self.model.module.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
-                
-#                 print('eval', reports)
-                # loss = self.criterion(output, reports_ids, reports_masks)
-                # eval_loss += loss.item()
+            auc_eval = [0 for _ in range(20)]
+            # (12, 20) -> (n, 20)
+            labels = [torch.zeros((1, 20), dtype=int).cpu(), 
+                      torch.ones((1, 20), dtype=int).cpu(),
+                     2 * torch.ones((1, 20), dtype=int).cpu(),
+                     3 * torch.ones((1, 20), dtype=int).cpu()]
+            # (12, 20, 4) -> (n, 20, 4)
+            cls_probs = [softmax(torch.rand((1, 20, 4)), -1).to(self.device), 
+                         softmax(torch.rand((1, 20, 4)), -1).to(self.device),
+                        softmax(torch.rand((1, 20, 4)), -1).to(self.device),
+                        softmax(torch.rand((1, 20, 4)), -1).to(self.device)]
 
-                val_res.extend(reports)
-                val_gts.extend(ground_truths)
-            
-            val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)},
-                                       {i: [re] for i, re in enumerate(val_res)})
-            log.update(**{'val_' + k: v for k, v in val_met.items()})
-            self.tb_writer.add_scalar('eval_loss', eval_loss, epoch)
-            for key in val_met:
-                self.tb_writer.add_scalar('val_'+key, val_met[key], epoch)
-            
-            labels = torch.cat(labels, 0)  # (bs, 20)
-            cls_probs = torch.cat(cls_probs, 0) # (bs, 20, 4)
-            for i in range(20):
-                y_true = labels[:, i]
-                ones = torch.sparse.torch.eye(4)
-                y_true = ones.index_select(0, y_true).numpy()
-                y_score = softmax(cls_probs[:, i, :].squeeze(1).cpu().numpy(), -1)
+            eval_loss = 0
+            # 验证
+            with torch.no_grad():
+                val_gts, val_res = [], []
+                for batch_idx, (images_id, images, reports_ids, reports_masks, img_padding_mask, label) in enumerate(self.val_dataloader):
+                    images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(
+                        self.device), reports_masks.to(self.device)
+                    if img_padding_mask is not None:
+                        img_padding_mask = img_padding_mask.to(self.device)
+                    output, cls_prob = self.model(images, label, mode='sample', img_mask=img_padding_mask)
 
-#                 try:
-                auc_eval[i] += roc_auc_score(y_true, y_score, multi_class='ovr', average='macro').mean()
-#                 except:
-#                     pass
-            print("epoch {}:".format(epoch))
-            for i in range(20):
-                print("valid: class {} AUC {:.4f}".format(i, auc_eval[i]))
-                
-        auc_test = [0 for _ in range(20)]
-        
-        # (12, 20) -> (n, 20)
-        labels = [torch.zeros((1, 20), dtype=int).cpu(), 
-                  torch.ones((1, 20), dtype=int).cpu(),
-                 2 * torch.ones((1, 20), dtype=int).cpu(),
-                 3 * torch.ones((1, 20), dtype=int).cpu()]
-        # (12, 20, 4) -> (n, 20, 4)
-        cls_probs = [softmax(torch.rand((1, 20, 4)), -1).to(self.device), 
-                     softmax(torch.rand((1, 20, 4)), -1).to(self.device),
-                    softmax(torch.rand((1, 20, 4)), -1).to(self.device),
-                    softmax(torch.rand((1, 20, 4)), -1).to(self.device)]
-        self.model.eval()
-        
-        with torch.no_grad():
-            test_gts, test_res = [], []
-            for batch_idx, (images_id, images, reports_ids, reports_masks, img_padding_mask, label) in enumerate(self.test_dataloader):
-                images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(
-                    self.device), reports_masks.to(self.device)
-                if img_padding_mask is not None:
-                    img_padding_mask = img_padding_mask.to(self.device)
-                output, cls_prob = self.model(images, label, mode='sample', img_mask=img_padding_mask)
-                
-                #后面这里加入分类结果的验证代码
-                labels.append(label)
-                cls_probs.append(cls_prob)
-                
-                # reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
-                if not self.multi_gpu:
-                    reports = self.model.tokenizer.decode_batch(output)
-                    ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
-                else:
-                    reports = self.model.module.tokenizer.decode_batch(output)
-                    ground_truths = self.model.module.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
+    #                 print(cls_prob.max(-1)[1], label)
 
-#                 print('test', reports)
+                    #后面这里加入分类结果的验证代码
+                    labels.append(label)
+                    cls_probs.append(cls_prob)
 
-                test_res.extend(reports)
-                test_gts.extend(ground_truths)
-            test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)},
-                                        {i: [re] for i, re in enumerate(test_res)})
-            log.update(**{'test_' + k: v for k, v in test_met.items()})
-            for key in test_met:
-                self.tb_writer.add_scalar('test_'+key, test_met[key], epoch)
+                    # reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
+                    if not self.multi_gpu:
+                        reports = self.model.tokenizer.decode_batch(output)
+                        ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
+                    else:
+                        reports = self.model.module.tokenizer.decode_batch(output)
+                        ground_truths = self.model.module.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
 
-            labels = torch.cat(labels, 0)
-            cls_probs = torch.cat(cls_probs, 0)
-            for i in range(20):
-                # 输入为 (bs, 4)
-                y_true = labels[:, i]
-                ones = torch.sparse.torch.eye(4)
-                y_true = ones.index_select(0, y_true).numpy()
-                y_score = softmax(cls_probs[:, i, :].squeeze(1).cpu().numpy(), -1)
-#                 print(y_true.shape, y_score.shape)
-                auc_test[i] += roc_auc_score(y_true, y_score, multi_class='ovr', average='macro').mean()
-    
-            print("epoch {}:".format(epoch))
-            for i in range(20):
-                print("test: class {} AUC {:.4f}".format(i, auc_test[i]))
+                    print('eval', reports)
+                    # loss = self.criterion(output, reports_ids, reports_masks)
+                    # eval_loss += loss.item()
+
+                    # 插文本，一维列表，元素是报告
+                    val_res.extend(reports)
+                    val_gts.extend(ground_truths)
+
+                if self.mirqi:
+                #生成两个csv，处理，几百个
+                    labels_csv = pd.DataFrame(data = val_res)
+                    labels_csv.to_csv('./val_res.csv',index=False,header=None)
+                    labels_csv = pd.DataFrame(data = val_gts)
+                    labels_csv.to_csv('./val_gts.csv',index=False,header=None)
+                    print()
+                    print("Ready to make labels")
+                    print()
+                    os.system('./ascript.sh')
+                    
+                    temp = Runner()
+                    temp.run()
+
+
+                val_met = self.metric_ftns({i: [gt] for i, gt in enumerate(val_gts)},
+                                           {i: [re] for i, re in enumerate(val_res)})
+                log.update(**{'val_' + k: v for k, v in val_met.items()}) 
+                self.tb_writer.add_scalar('eval_loss', eval_loss, epoch)
+                for key in val_met:
+                    self.tb_writer.add_scalar('val_'+key, val_met[key], epoch)
+
+                labels = torch.cat(labels, 0)  # (bs, 20)
+                cls_probs = torch.cat(cls_probs, 0) # (bs, 20, 4)
+                for i in range(20):
+                    y_true = labels[:, i]
+                    ones = torch.sparse.torch.eye(4)
+                    y_true = ones.index_select(0, y_true).numpy()
+                    y_score = softmax(cls_probs[:, i, :].squeeze(1).cpu().numpy(), -1)
+
+    #                 try:
+                    auc_eval[i] += roc_auc_score(y_true, y_score, multi_class='ovr', average='macro').mean()
+    #                 except:
+    #                     pass
+                print("epoch {}:".format(epoch))
+                total_AUC = 0
+                for i in range(20):
+                    print("valid: class {} AUC {:.4f}".format(i, auc_eval[i]))
+                    total_AUC += auc_eval[i]
+                print("valid: average AUC {:.4f}".format(total_AUC / 20))
+
+            auc_test = [0 for _ in range(20)]
+
+            # (12, 20) -> (n, 20)
+            labels = [torch.zeros((1, 20), dtype=int).cpu(), 
+                      torch.ones((1, 20), dtype=int).cpu(),
+                     2 * torch.ones((1, 20), dtype=int).cpu(),
+                     3 * torch.ones((1, 20), dtype=int).cpu()]
+            # (12, 20, 4) -> (n, 20, 4)
+            cls_probs = [softmax(torch.rand((1, 20, 4)), -1).to(self.device), 
+                         softmax(torch.rand((1, 20, 4)), -1).to(self.device),
+                        softmax(torch.rand((1, 20, 4)), -1).to(self.device),
+                        softmax(torch.rand((1, 20, 4)), -1).to(self.device)]
+            self.model.eval()
+
+            with torch.no_grad():
+                test_gts, test_res = [], []
+                for batch_idx, (images_id, images, reports_ids, reports_masks, img_padding_mask, label) in enumerate(self.test_dataloader):
+                    images, reports_ids, reports_masks = images.to(self.device), reports_ids.to(
+                        self.device), reports_masks.to(self.device)
+                    if img_padding_mask is not None:
+                        img_padding_mask = img_padding_mask.to(self.device)
+                    output, cls_prob = self.model(images, label, mode='sample', img_mask=img_padding_mask)
+
+                    #后面这里加入分类结果的验证代码
+                    labels.append(label)
+                    cls_probs.append(cls_prob)
+
+                    # reports = self.model.tokenizer.decode_batch(output.cpu().numpy())
+                    if not self.multi_gpu:
+                        reports = self.model.tokenizer.decode_batch(output)
+                        ground_truths = self.model.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
+                    else:
+                        reports = self.model.module.tokenizer.decode_batch(output)
+                        ground_truths = self.model.module.tokenizer.decode_batch(reports_ids[:, 1:].cpu().numpy())
+
+                    print('test', reports)
+
+                    test_res.extend(reports)
+                    test_gts.extend(ground_truths)
+                test_met = self.metric_ftns({i: [gt] for i, gt in enumerate(test_gts)},
+                                            {i: [re] for i, re in enumerate(test_res)})
+                log.update(**{'test_' + k: v for k, v in test_met.items()})
+                for key in test_met:
+                    self.tb_writer.add_scalar('test_'+key, test_met[key], epoch)
+
+                labels = torch.cat(labels, 0)
+                cls_probs = torch.cat(cls_probs, 0)
+                for i in range(20):
+                    # 输入为 (bs, 4)
+                    y_true = labels[:, i]
+                    ones = torch.sparse.torch.eye(4)
+                    y_true = ones.index_select(0, y_true).numpy()
+                    y_score = softmax(cls_probs[:, i, :].squeeze(1).cpu().numpy(), -1)
+    #                 print(y_true.shape, y_score.shape)
+                    auc_test[i] += roc_auc_score(y_true, y_score, multi_class='ovr', average='macro').mean()
+
+                print("epoch {}:".format(epoch))
+                total_AUC = 0
+                for i in range(20):
+                    print("test: class {} AUC {:.4f}".format(i, auc_test[i]))
+                    total_AUC += auc_test[i]
+                print("test: average AUC {:.4f}".format(total_AUC / 20))
         
         self.lr_scheduler.step()
         return log
